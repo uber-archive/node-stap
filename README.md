@@ -1,8 +1,15 @@
 ## Synopsis
 
-Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces and python scripts for aggregation, printing, and misc. niceties.  Only profiles JavaScript frames, line numbers are best effort (not always available) and refer to the start of a function, and may omit inlined functions, but pretty much works.  Inspired and informed by @davepacheco's excellent v8 DTrace ustack helper.  Still a work in progress.
+Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.  Uses python scripts for aggregation, printing, and various niceties. 
 
-## Code Example
+Caveats: only profiles JavaScript frames, line numbers are best effort (not always available) and refer to the start of a function, and stacks may omit inlined functions. But, it pretty much works.  
+
+Inspired and informed by davepacheco's excellent V8 DTrace ustack helper.  
+
+A work in progress.
+
+## Example
+```
 dh@dh:~$ cat test.js
 while (true) {
     console.log(new Error().stack)
@@ -35,13 +42,14 @@ Total samples: 1000
                                 30 Buffer.write buffer.js:<unknown>
                   7 Module module.js:36
                   6 <empty> <unknown>:203
+```
 ## Motivation
 
-Analyzing the performance of Node.js programs can be hard; 
+Analyzing the performance of Node.js programs can be hard; so can debugging stuck processes.  These tools are intended to make both a bit easier.
 
 ## Installation
 
-You'll need SystemTap installed on your system as well as the dbgsyms for your kernel.  Other than that, just clone and profile.  Note: only known to work on node0.10 (give it a try).
+You'll need SystemTap installed on your system as well as the dbgsyms for your kernel.  Other than that, just clone and profile as above.  Note: only known to work on node0.10 (give it a try).
 
 ## Tests
 
@@ -50,6 +58,10 @@ All things in the fullness of time.
 ## Contributors
 
 dh
+
+## Coming soon
+
+Today, only supports text output.  Flamegraph support is coming soon.
 
 ## License
 
