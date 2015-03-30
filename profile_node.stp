@@ -1,0 +1,378 @@
+/*
+ * SystemTap script to print symbolicated javscript stacktraces.
+ * Omits native frames and only prints userland (for now).  
+ *
+ * Note: convention is that functions should always expect
+ * to strip the low bit from their point arguments; functions cannot
+ * assume that pointers they receive are clean.
+ */
+// Offsets from FP to useful stuff
+global FP_CONTEXT_OFFSET                    = -0x8
+global FP_FUNC_OFFSET                       = -0x10 // [FP - 16] contains pointer to func blob (also known as "marker")
+global FP_RECEIVER_OFFSET                   = 0x10
+global ENTRY_FRAME_FP_OFFSET                = -0x40 // Entry frames point to previous exit frame 
+global ARGUMENTS_ADAPTOR_CONTEXT_VAL        = 4
+
+// Frame types (enum)
+global FRAME_TYPE_ENTRY                     = 1
+// global FRAME_TYPE_ENTRY_CONSTRUCT           = 2
+global FRAME_TYPE_EXIT                      = 3
+global FRAME_TYPE_JAVA_SCRIPT               = 4
+//global FRAME_TYPE_OPTIMIZED               = 5
+//global FRAME_TYPE_INTERNAL                = 6
+//global FRAME_TYPE_CONSTRUCT               = 7
+global FRAME_TYPE_ARGUMENTS_ADAPTOR         = 8
+
+// Offset from base of JSFunction to shared info and context
+global JS_FUNC_SHARED_INFO_OFFSET           = 0x28 // Func blob + 0x28 contains pointer to shared info
+global JS_FUNC_CONTEXT_OFFSET               = 0x30
+
+// "Global object" in context, in JS sense
+global CONTEXT_GLOBAL_OBJECT_INDEX          = 0x03
+
+// Function shared info (function metadata, shared across all instances of a given function)
+global SHARED_INFO_NAME_OFFSET              = 0x08
+global SHARED_INFO_INFERRED_NAME_OFFSET     = 0x50 // Best effort name if no explicit name
+global SHARED_INFO_SCRIPT_OFFSET            = 0x40 
+//global SHARED_INFO_COMPILER_HINTS_OFFSET    = 0x8c // For detecting code we should hide
+//global SHARED_INFO_COMPILER_NATIVE_HINT     = 0x400
+global SHARED_INFO_START_POSITION_AND_TYPE_OFFSET= 0x84 // Start position in file, to find line 
+global SHARED_INFO_START_POSITION_SHIFT          = 0x02 // Start pos needs a shift
+
+// Offsets from script 
+global SCRIPT_NAME_OFFSET                   = 0x10
+global SCRIPT_LINE_OFFSET_OFFSET            = 0x18
+global SCRIPT_LINE_ENDS_OFFSET              = 0x58 // index: line number.  value: offset from file start to EOL
+
+// JavaScript Strings
+global STRING_LENGTH_OFFSET                 = 0x08
+global SEQ_STRING_DATA_OFFSET               = 0x18 // Offset to useful bytes in contiguous string
+global CONS_STRING_FIRST_OFFSET             = 0x18 // Cons strings are recursive, reference two other strings
+global CONS_STRING_SECOND_OFFSET            = 0x20
+global MAX_CONS_STRING_DEPTH                = 5 // Can only do so much in a probe
+
+// For determining layout of string 
+global STRING_REPR_MASK                     = 0x07
+global STRING_ENC_ASCII                     = 0x04 // If not ascii, implicitly UTF-16
+global STRING_LAYOUT_MASK                   = 0x03
+global STRING_LAYOUT_SEQ                    = 0x00 // Contiguous
+global STRING_LAYOUT_CONS                   = 0x01 // Recursive, references two others
+//global STRING_LAYOUT_EXT                    = 0x02 // Not in JS heap, currently unsupported
+//global STRING_LAYOUT_SLICED                 = 0x03 // Subsequence of another string, currently unsupported
+
+// Offset from all heap objects to map ptr (metadata)
+global HEAP_OBJECT_MAP_OFFSET               = 0x00 
+global HEAP_MAP_TYPE_OFFSET                 = 0x0c
+
+// Heap object types
+global HEAP_OBJECT_FIXED_ARRAY_TYPE         = 0xa3
+global HEAP_OBJECT_BUILTIN_TYPE             = 0xae
+global HEAP_OBJECT_JS_FUNCTION_TYPE         = 0xb5
+
+// For fixed arrays, such as line ends in script
+global FIXED_ARRAY_LENGTH_OFFSET            = 0x08
+global FIXED_ARRAY_HEADER_SIZE              = 0x10
+
+// Context object
+global CONTEXT_HEADER_SIZE                  = 0x10
+
+/*
+ * An SMI is an int, as opposed to a pointer, identified by having low bit 0
+ * On 64-bit platforms, the value lives in the upper 32 bits of a 64 bit field
+ */
+function is_smi(addr:long) {
+    return (addr & 0x1) == 0x0
+}
+
+function smi_value(ptr:long) {
+    return ptr >> 32;
+}
+
+/*
+ * For pointers, must strip bit 0, which is a tag
+ */
+function strip_low_bit(addr:long) {
+    return addr & ~1
+}
+
+function read_user_pointer(addr:long) {
+    return strip_low_bit(user_uint64(strip_low_bit(addr)))
+}
+
+function read_user_smi(addr:long) {
+    return smi_value(user_uint64(strip_low_bit(addr)))
+}
+
+/* 
+ * Context for evaluating JS code (notably for finding global obj)
+ */
+function context_get(array_addr:long, idx:long) {
+    return read_user_pointer(array_addr + CONTEXT_HEADER_SIZE + idx * 0x8)
+}
+
+/*
+ * Fixed arrays
+ */
+function get_fixed_array_length(array_addr:long) {
+    return read_user_smi(array_addr + FIXED_ARRAY_LENGTH_OFFSET)
+}
+
+function get_fixed_array_smi(array:long, index:long) {
+    return read_user_smi(array + FIXED_ARRAY_HEADER_SIZE + 8 * index)
+}
+
+function get_shared_info_script(shared_info:long) {
+    return read_user_pointer(shared_info + SHARED_INFO_SCRIPT_OFFSET)
+}
+
+/*
+ * Getting line numbers is fun.  The Script has an array whose entries contain
+ * file offsets in bytes.  The index itself corresponds to a line number.  We
+ * take the offset for a function from the shared info and do a binary search to
+ * find the lowest line number which ends above that offset.  Binary search instead
+ * of brute force because cycles are precious in probe context.
+ *
+ * Note that we're only getting the line number for function start (getting the 
+ * exact line number is much harder, ref. InnerPointerToCodeCache::InnerPointerToCodeCacheEntry
+ * Also note, v8 doesn't compute line numbers up front, and if it hasn't had
+ * a reason to compute them yet, then there's no way for us to figure it out.
+ */
+function get_shared_info_line_number(shared_info:long) {
+    shared_info = strip_low_bit(shared_info)
+    start_position = user_uint32(shared_info + SHARED_INFO_START_POSITION_AND_TYPE_OFFSET) >> SHARED_INFO_START_POSITION_SHIFT
+    script = get_shared_info_script(shared_info)
+    line_ends = read_user_pointer(script + SCRIPT_LINE_ENDS_OFFSET)
+    line_offset = read_user_smi(script + SCRIPT_LINE_OFFSET_OFFSET)
+    size = get_fixed_array_length(line_ends)
+
+    // Not always set    
+    if (get_heap_object_type(line_ends) != HEAP_OBJECT_FIXED_ARRAY_TYPE) {
+        return -1;
+    }
+
+    low = 0
+    high = size - 1
+
+    // printf("starting binary search %d %d %d\n", low, high, start_position)
+
+    while (low < high) {
+        mid = (high + low) / 2
+    
+        mid_line_end = get_fixed_array_smi(line_ends, mid)
+        //printf("search iteration %d %d %d %lx\n", low, high, mid_line_end, get_fixed_array_object(line_ends, mid))
+        if (mid_line_end < start_position) {
+            low = mid + 1
+        } else {
+            high = mid
+        }
+    }
+    
+    return low + line_offset
+}
+
+/*
+ * Just grabbing the two-byte value and treating it as if it were ascii.
+ * Works for most unicode chars!
+ */
+function print_user_utf16_string(data_ptr:long, length:long) {
+    data_ptr = strip_low_bit(data_ptr)
+    for (i = 0; i < 200 && i < length; i++) {
+        c = user_uint16(data_ptr)
+        printf("%c", c);
+        data_ptr += 2
+    }
+}
+
+/* 
+ * Cons strings are printed by recursively printing the referenced
+ * strings
+ */
+function print_cons_string(string_ptr:long, depth:long) {
+    first = read_user_pointer(string_ptr + CONS_STRING_FIRST_OFFSET)
+    second = read_user_pointer(string_ptr + CONS_STRING_SECOND_OFFSET)
+    print_user_string_internal(first, depth + 1)
+    print_user_string_internal(second, depth + 1)
+}
+
+function is_string_empty(string_ptr:long) {
+    return get_string_length(string_ptr) == 0
+}
+
+function get_string_shape(string_ptr:long) {
+    map_ptr = read_user_pointer(string_ptr + HEAP_OBJECT_MAP_OFFSET)
+    type_field = user_uint8(map_ptr + HEAP_MAP_TYPE_OFFSET) 
+    
+    return type_field & STRING_REPR_MASK
+}
+
+function get_string_length(string_ptr:long) {
+    return read_user_smi(string_ptr + STRING_LENGTH_OFFSET) 
+}
+
+/*
+ * Print a user string, handling various encodings and shapes
+ * and respecting the length values in strings.  Should be refactored
+ * to construct strings in an array and return them, but... later.
+ * Note, we enforce our own max depth to avoid blowing our budget
+ * for computation in prove context.
+ */
+function print_user_string_internal(string_addr:long, depth:long) {
+    if (depth >= MAX_CONS_STRING_DEPTH) {
+        printf("...");
+        return 0
+    }
+
+    string_addr = strip_low_bit(string_addr)
+    string_shape = get_string_shape(string_addr)
+    string_length = get_string_length(string_addr)
+
+    //printf("Printing string with shape %x, length %x\n", string_shape, string_length)
+
+    if (string_length == 0) {
+        printf("<empty>")
+    } else {
+        if (string_shape == (STRING_ENC_ASCII|STRING_LAYOUT_SEQ)) {
+            printf("%s", user_string_n(string_addr + SEQ_STRING_DATA_OFFSET, string_length))
+        } else if (string_shape == (STRING_LAYOUT_SEQ))  {
+            print_user_utf16_string(string_addr + SEQ_STRING_DATA_OFFSET, string_length)
+        } else if ((string_shape & STRING_LAYOUT_MASK) == STRING_LAYOUT_CONS) {
+            print_cons_string(string_addr, depth + 1)
+        } else {
+            printf("<unknown>");
+        }
+    }
+}
+
+// Root of recursion
+function print_user_string(string_addr:long) {
+    print_user_string_internal(string_addr, 0)
+}
+
+function get_shared_info_file_name(shared_info:long) {
+    script_ptr = get_shared_info_script(shared_info)
+    script_name_ptr = read_user_pointer(script_ptr + SCRIPT_NAME_OFFSET)
+    return script_name_ptr
+}
+
+function get_shared_info_function_name(shared_info:long) {
+    name_ptr = read_user_pointer(shared_info + SHARED_INFO_NAME_OFFSET)
+    if (is_string_empty(name_ptr)) {
+        name_ptr = read_user_pointer(shared_info + SHARED_INFO_INFERRED_NAME_OFFSET)
+    }
+
+    return name_ptr
+}
+
+function get_heap_object_type(obj_ptr:long) {
+    map_ptr = read_user_pointer(obj_ptr + HEAP_OBJECT_MAP_OFFSET)
+    return user_uint8(map_ptr + HEAP_MAP_TYPE_OFFSET)
+}
+
+/*
+ * Two steps: check for argument adaptor frame by 
+ * checking for SMI in "context" offset from FP, 
+ * then check function pointer slot (which will be an SMI,
+ * containing an enum value, or else a pointer to a JSFunction)
+ */
+function get_frame_type_for_fp(fp:long) {
+    fp = strip_low_bit(fp)
+
+    context_val = user_uint64(fp + FP_CONTEXT_OFFSET)
+    if (is_smi(context_val) && smi_value(context_val) == ARGUMENTS_ADAPTOR_CONTEXT_VAL) {
+        return FRAME_TYPE_ARGUMENTS_ADAPTOR
+    }
+
+    func_ptr = user_uint64(fp + FP_FUNC_OFFSET)
+    if (is_smi(func_ptr)) {
+        return smi_value(func_ptr)
+    }
+
+    type_field = get_heap_object_type(func_ptr)
+    if (type_field != HEAP_OBJECT_JS_FUNCTION_TYPE) {
+        //printf("unexpected type_field = %x\n", type_field);
+        // Probably we started accidentally in an exit frame
+        return FRAME_TYPE_EXIT
+    }
+
+    // Not trying to dig out inlined frames for now
+    return FRAME_TYPE_JAVA_SCRIPT
+}
+
+/*
+ * Prints a JS function from a stack trace, determining
+ * name and line number if possible.
+ */
+function log_function(func_ptr:long) {
+    func_ptr = strip_low_bit(func_ptr)
+
+    shared_ptr = get_func_shared_info(func_ptr)
+    name_ptr = get_shared_info_function_name(shared_ptr)
+    file_name = get_shared_info_file_name(shared_ptr)
+
+    print_user_string(name_ptr)
+    printf(" ")
+    print_user_string(file_name)
+
+    line_number = get_shared_info_line_number(shared_ptr)
+    if (line_number >= 0) {
+        printf(":%d", line_number)
+    } else {
+        printf(":<unknown>");
+    }
+    println("")
+}
+
+function get_func_shared_info(func:long) {
+    return read_user_pointer(func + JS_FUNC_SHARED_INFO_OFFSET)
+}
+
+function func_is_hidden_builtin(func:long) {
+    context = read_user_pointer(func + JS_FUNC_CONTEXT_OFFSET)
+    global_object = context_get(context, CONTEXT_GLOBAL_OBJECT_INDEX)
+    obj_type = get_heap_object_type(global_object) 
+    is_builtin = obj_type == HEAP_OBJECT_BUILTIN_TYPE
+
+    //printf("builtin? %d", is_builtin)
+    // Not on linux?
+    // shared_info = get_func_shared_info(func)
+    // hints = user_uint32(strip_low_bit(shared_info) + SHARED_INFO_COMPILER_HINTS_OFFSET)
+    // printf("hints: %x\n", hints)
+    // printf("native? %x\n", hints & SHARED_INFO_COMPILER_NATIVE_HINT)
+    // return is_builtin && !(hints & SHARED_INFO_COMPILER_NATIVE_HINT)
+    return is_builtin
+}
+
+function frame_receiver_is_js_builtin(fp:long) {
+    // top of stack
+    receiver = read_user_pointer(fp + FP_RECEIVER_OFFSET)
+    receiver_type = get_heap_object_type(receiver)
+    return receiver_type == HEAP_OBJECT_BUILTIN_TYPE
+}
+
+probe timer.profile {
+	if (pid() == $1 && user_mode()) {
+		frame = u_register("bp")
+        type = get_frame_type_for_fp(frame) // sketchy here if it's an exit frame
+
+		for (i = 0; i < 100 && frame != 0; i++) {
+            if (type == FRAME_TYPE_JAVA_SCRIPT) {
+                func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
+
+                if (!frame_receiver_is_js_builtin(frame) && !func_is_hidden_builtin(func_ptr)) {
+                    log_function(func_ptr)
+                }
+            } 
+
+			//pc = user_uint64(frame + 8)
+            if (type == FRAME_TYPE_ENTRY) {
+                // Jump over native code
+                frame = read_user_pointer(frame + ENTRY_FRAME_FP_OFFSET)
+                type = FRAME_TYPE_EXIT
+            } else {
+                frame = read_user_pointer(frame)
+                type = get_frame_type_for_fp(frame) 
+            }
+		}
+        printf("\n");
+	}
+}
