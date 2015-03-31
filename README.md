@@ -2,11 +2,11 @@
 
 Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.  Uses python scripts (likely node instead soon) for aggregation, printing, and various niceties. 
 
-Outputs either text for quick command-line inspection or a format suitable for inputting to (https://github.com/brendangregg/FlameGraph "flamegraph") or (https://github.com/joyent/node-stackvis "node-stackvis").
+Outputs either text for quick command-line inspection or a format suitable for inputting to [FlameGraph] (https://github.com/brendangregg/FlameGraph) or [node-stackvis](https://github.com/joyent/node-stackvis).
 
 Caveats: only profiles JavaScript frames, line numbers are best effort (not always available) and refer to the start of a function, and stacks may omit inlined functions. But, it pretty much works.  
 
-Inspired and informed by Dave Pacheco's excellent (https://www.joyent.com/blog/understanding-dtrace-ustack-helpers "V8 DTrace ustack helper"). 
+Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](https://www.joyent.com/blog/understanding-dtrace-ustack-helpers) 
 
 A work in progress.
 
