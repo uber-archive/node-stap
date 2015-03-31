@@ -310,7 +310,7 @@ function log_function(func_ptr:long) {
     file_name = get_shared_info_file_name(shared_ptr)
 
     print_user_string(name_ptr)
-    printf(" ")
+    printf(":")
     print_user_string(file_name)
 
     line_number = get_shared_info_line_number(shared_ptr)

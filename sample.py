@@ -1,7 +1,10 @@
 #
 # Main program for computing node callgraph stats.
 # Uses helpers to invoke systemtap to collect data,
-# then aggregate and display that data.
+# then aggregate and display that data.  Can either output
+# in text formate for direct consumption or fake up
+# output similar to the "DTrace" format expected by
+# node-stackvis for producing flame graphs
 #
 from __future__ import absolute_import
 import os
@@ -14,7 +17,7 @@ VALID_OUTPUT_FORMATS = ('text', 'flame')
 
 
 def die(msg):
-    print msg
+    sys.stderr.write(msg + '\n')
     sys.exit(1)
 
 
@@ -56,8 +59,20 @@ def output_text(tree):
     tree.display()
 
 
-def output_flamegraph(raw_lines):
-    die('Flamegraphs not yet supported.')
+def sanitize_flame_frame(frame):
+    return frame.replace('<', '[').replace('>', ']')
+
+# Fake up "dtrace" format stack output for node-stackvis
+def output_flamegraph(stacks):
+    for stack in stacks:
+        # Skip empty stacks
+        if not stack:
+            continue
+
+        # stackvis doesn't like <, though we do
+        for frame in reversed(stack):
+            print 'node`{}'.format(sanitize_flame_frame(frame))
+        print ' {}'.format(len(stack))
 
 
 def main():
@@ -68,15 +83,15 @@ def main():
     if not pid_exists(pid):
         die('Pid {} does not exist.'.format(pid))
 
-    print 'Sampling {} for {}s, outputting {}.\n'.format(pid, duration_s, output_format)
+    # stackvis skips first three lines
+    print 'Sampling {} for {}s, outputting {}.\n\n'.format(pid, duration_s, output_format)
     stacks = node_systemtap.profile(pid, duration_s)
-    tree = aggregation.aggregate(stacks)
 
     assert output_format in VALID_OUTPUT_FORMATS
     if output_format == 'text':
-        output_text(tree)       
+        output_text(aggregation.aggregate(stacks))
     elif output_format == 'flame':
-        output_flamegraph(tree)   
+        output_flamegraph(stacks)   
 
 if __name__ == '__main__':
     main()
