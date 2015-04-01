@@ -80,4 +80,4 @@ Port of wrapper scripts to Node for possible open source release.  Wrap SVG gene
 
 ## License
 
-TBD.
+node-stap is available under the MIT license. See the LICENSE file for more info.
