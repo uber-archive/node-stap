@@ -9,15 +9,20 @@
 from __future__ import absolute_import
 import os
 import sys
+import logging 
 import aggregation
-import node_systemtap
+from node_systemtap import NodeProfiler, ProfilingError
 
 
 VALID_OUTPUT_FORMATS = ('text', 'flame')
 
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
 def die(msg):
-    sys.stderr.write(msg + '\n')
+    logger.error(msg)
     sys.exit(1)
 
 
@@ -85,7 +90,12 @@ def main():
 
     # stackvis skips first three lines
     print 'Sampling {} for {}s, outputting {}.\n\n'.format(pid, duration_s, output_format)
-    stacks = node_systemtap.profile(pid, duration_s)
+    profiler = NodeProfiler(logger)
+
+    try:
+        stacks = profiler.profile(pid, duration_s)
+    except ProfilingError as e:
+        die('Profiling failed, exiting. {}'.format(e.message))
 
     assert output_format in VALID_OUTPUT_FORMATS
     if output_format == 'text':

@@ -6,6 +6,8 @@
  * to strip the low bit from their point arguments; functions cannot
  * assume that pointers they receive are clean.
  */
+global MAX_STACK_DEPTH                      = 30; // YOLO
+
 // Offsets from FP to useful stuff
 global FP_CONTEXT_OFFSET                    = -0x8
 global FP_FUNC_OFFSET                       = -0x10 // [FP - 16] contains pointer to func blob (also known as "marker")
@@ -354,7 +356,7 @@ probe timer.profile {
 		frame = u_register("bp")
         type = get_frame_type_for_fp(frame) // sketchy here if it's an exit frame
 
-		for (i = 0; i < 100 && frame != 0; i++) {
+		for (i = 0; i < MAX_STACK_DEPTH && frame != 0; i++) {
             if (type == FRAME_TYPE_JAVA_SCRIPT) {
                 func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
 
