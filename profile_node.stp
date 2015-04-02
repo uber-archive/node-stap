@@ -6,7 +6,7 @@
  * to strip the low bit from their point arguments; functions cannot
  * assume that pointers they receive are clean.
  */
-global MAX_STACK_DEPTH                      = 30; // YOLO
+global MAX_STACK_DEPTH                      = 100; // YOLO
 
 // Offsets from FP to useful stuff
 global FP_CONTEXT_OFFSET                    = -0x8

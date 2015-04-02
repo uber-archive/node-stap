@@ -13,7 +13,7 @@ import tempfile
 
 
 NODE_STACK_SCRIPT = 'profile_node.stp'
-MAX_ACTIONS_ARG = '-DMAXACTIONS=4000' # default 1000
+MAX_ACTION_ARG = '-DMAXACTION={}'
 
 
 global_logger = logging.getLogger(__name__)
@@ -53,11 +53,11 @@ class NodeProfiler(object):
         sys.exit(1)
 
 
-    def profile(self, pid, duration_s):
+    def profile(self, pid, duration_s, max_actions=10000):
         ''' Launch systemtap to profile a given pid for
         a given period of time.  Raises ProfilingError in case of problems.
         '''
-        stap_command = ['stap', MAX_ACTIONS_ARG, NODE_STACK_SCRIPT, str(pid)]
+        stap_command = ['stap', MAX_ACTION_ARG.format(max_actions), NODE_STACK_SCRIPT, str(pid)]
         out_file = tempfile.TemporaryFile('rw')
 
         try:
