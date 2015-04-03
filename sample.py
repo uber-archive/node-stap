@@ -64,8 +64,16 @@ def output_text(tree):
     tree.display()
 
 
+def truncate_frame_path(frame):
+    split = frame.split('/')
+    if len(split) > 1:
+        return split[0] + split[-1]
+    return frame
+
+
 def sanitize_flame_frame(frame):
     return frame.replace('<', '[').replace('>', ']')
+
 
 # Fake up "dtrace" format stack output for node-stackvis
 def output_flamegraph(stacks):
@@ -77,7 +85,7 @@ def output_flamegraph(stacks):
         # stackvis doesn't like <, though we do
         for frame in reversed(stack):
             print 'node`{}'.format(sanitize_flame_frame(frame))
-        print ' {}'.format(len(stack))
+        print ' {}'.format(1)
 
 
 def main():
@@ -96,6 +104,8 @@ def main():
         stacks = profiler.profile(pid, duration_s)
     except ProfilingError as e:
         die('Profiling failed, exiting. {}'.format(e.message))
+
+    stacks = [[truncate_frame_path(frame) for frame in stack] for stack in stacks]
 
     assert output_format in VALID_OUTPUT_FORMATS
     if output_format == 'text':
