@@ -231,7 +231,7 @@ function print_user_string_internal(string_addr:long, depth:long) {
     //printf("Printing string with shape %x, length %x\n", string_shape, string_length)
 
     if (string_length == 0) {
-        printf("<empty>")
+        printf("[empty]")
     } else {
         if (string_shape == (STRING_ENC_ASCII|STRING_LAYOUT_SEQ)) {
             printf("%s", user_string_n(string_addr + SEQ_STRING_DATA_OFFSET, string_length))
@@ -240,7 +240,7 @@ function print_user_string_internal(string_addr:long, depth:long) {
         } else if ((string_shape & STRING_LAYOUT_MASK) == STRING_LAYOUT_CONS) {
             print_cons_string(string_addr, depth + 1)
         } else {
-            printf("<unknown>");
+            printf("[unknown]");
         }
     }
 }
@@ -319,7 +319,7 @@ function log_function(func_ptr:long) {
     if (line_number >= 0) {
         printf(":%d", line_number)
     } else {
-        printf(":<unknown>");
+        printf(":[unknown]");
     }
     println("")
 }
