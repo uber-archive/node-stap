@@ -6,6 +6,10 @@ Can also output text suitable for input to to [FlameGraph] (https://github.com/b
 
 Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](https://www.joyent.com/blog/understanding-dtrace-ustack-helpers).
 
+## Safety
+
+**SystemTap is invasive; recommended to try in safe environments before running in production!**
+
 ## Caveats
 
 * Only profiles JavaScript frames.
@@ -13,7 +17,6 @@ Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](http
 * Only tested on node0.10 so far.
 * Stacks may omit inlined functions.
 * Also may elide frames on very deep stacks to avoid doing too much work in SystemTap probe context.
-* SystemTap is invasive; recommended to try in safe environments before running in production.
 
 ## Basic Usage
 
