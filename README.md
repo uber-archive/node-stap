@@ -1,70 +1,79 @@
 ## Synopsis
 
-Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.  Uses python scripts (likely node instead soon) for aggregation, printing, and various niceties. 
+Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.
+Uses wrapper scripts and [node-stackvis](https://github.com/joyent/node-stackvis) to generate textual or SVG flamegraphs.
+Can also output text suitable for input to to [FlameGraph] (https://github.com/brendangregg/FlameGraph).
 
-Outputs either text for quick command-line inspection or a format suitable for inputting to [FlameGraph] (https://github.com/brendangregg/FlameGraph) or [node-stackvis](https://github.com/joyent/node-stackvis).
+Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](https://www.joyent.com/blog/understanding-dtrace-ustack-helpers).
 
-Caveats: only profiles JavaScript frames, line numbers are best effort (not always available) and refer to the start of a function, and stacks may omit inlined functions. But, it pretty much works.  
+## Caveats
 
-Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](https://www.joyent.com/blog/understanding-dtrace-ustack-helpers) 
+* Only profiles JavaScript frames.
+* Line numbers are best effort (not always available) and refer to the start of a function.
+* Only tested on node0.10 so far.
+* Stacks may omit inlined functions.
+* Also may elide frames on very deep stacks to avoid doing too much work in SystemTap probe context.
+* SystemTap is invasive; recommended to try in safe environments before running in production.
 
-A work in progress.
+## Basic Usage
 
-## Text Example
 ```
-dh@dh:~$ cat test.js
-while (true) {
-    console.log(new Error().stack)
-}
-dh@dh:~$ node test.js  > /dev/null &
-[1] 9861
-dh@dh:~$ cd node-stap/
-dh@dh:~/node-stap$ sudo python sample.py 9861 text 10 
-Sampling 9861 for 10s, outputting text.
-
-
-Total samples: 1309
-  1309 <empty>:<unknown>:26
-    1309 startup:<unknown>:29
-      1309 Module.runMain:module.js:494
-        1309 Module._load:module.js:274
-          1309 Module.load:module.js:345
-            1309 Module._extensions..js:module.js:471
-              1309 Module._compile:module.js:373
-                1309 <empty>:/home/dh/test.js:0
-                  1 Module._extensions..js:module.js:471
-                  1 Module.load:module.js:345
-                  122 Console.log:console.js:<unknown>
-                    120 Console.log:console.js:<unknown>
-                      23 exports.format:util.js:<unknown>
-                      97 SyncWriteStream.write:fs.js:<unknown>
-                        97 SyncWriteStream.write:fs.js:<unknown>
-                          19 fs.writeSync:fs.js:<unknown>
-                            19 fs.writeSync:fs.js:<unknown>
-                              1 isBuffer:buffer.js:<unknown>
-                          74 Buffer:buffer.js:<unknown>
-                            73 Buffer:buffer.js:<unknown>
-                              52 Buffer.write:buffer.js:<unknown>
-                                51 Buffer.write:buffer.js:<unknown>
-                  12 Module:module.js:36
-                  2 <empty>:<unknown>:203
+dh@dh:~/node-stap$ sudo cmd/torch.js
+Usage: torch <pid> <text|flame> <duration (s)>
 ```
 
 ## SVG Example
 
 ```
-dh@dh:~/node-stap$ sudo python sample.py 2622 flame 5 > /tmp/stacks.txt 
-dh@dh:~/node-stap$ cd ../node-stackvis/
-dh@dh:~/node-stackvis$ ./cmd/stackvis  < /tmp/stacks.txt dtrace flamegraph-svg > ../flame.svg
+dh@dh:~/node-stap$ sudo cmd/torch.js 24701 flame 10 > /tmp/flame.svg
+Sampling 24701 for 10s, outputting flame.
+
+dh@dh:~/node-stap$ # done
 ```
 
-## Motivation
+## Text Example
 
-Analyzing the performance of Node.js programs can be hard; so can debugging stuck processes.  These tools are intended to make both a bit easier.
+```
+dh@dh:~$ cat test.js
+while (true) {
+    console.log(new Error().stack)
+}
+dh@dh:~$ node test.js > /dev/null &
+[1] 26314
+dh@dh:~$ cd node-stap/
+dh@dh:~/node-stap$ sudo ./cmd/torch.js 26314 text 10
+Sampling 26314 for 10s, outputting text.
+
+Total samples: 873
+873 [empty]:[unknown]:26
+  873 startup:[unknown]:29
+    873 Module.runMain:module.js:494
+      873 Module._load:module.js:274
+        873 Module.load:module.js:345
+          873 Module._extensions..js:module.js:471
+            873 Module._compile:module.js:373
+              873 [empty]:/home/dh/test.js:0
+                78 Console.log:console.js:[unknown]
+                  78 Console.log:console.js:[unknown]
+                    56 SyncWriteStream.write:fs.js:[unknown]
+                      56 SyncWriteStream.write:fs.js:[unknown]
+                        45 Buffer:buffer.js:[unknown]
+                          45 Buffer:buffer.js:[unknown]
+                            27 Buffer.write:buffer.js:[unknown]
+                              27 Buffer.write:buffer.js:[unknown]
+                        11 fs.writeSync:fs.js:[unknown]
+                          11 fs.writeSync:fs.js:[unknown]
+                    21 exports.format:util.js:[unknown]
+                1 [empty]::[unknown]
+                4 Module:module.js:36
+                4 [empty]:[unknown]:203
+
+dh@dh:~/node-stap$
+```
 
 ## Installation
 
-You'll need SystemTap installed on your system as well as the dbgsyms for your kernel.  Other than that, just clone and profile as above.  Note: only known to work on node0.10 (give it a try).
+You'll need SystemTap installed on your system as well as the dbgsyms for your kernel.  Other than that, just clone and profile as above.
 
 ## Tests
 
@@ -76,7 +85,7 @@ dh
 
 ## Coming soon
 
-Port of wrapper scripts to Node for possible open source release.  Wrap SVG generation so flamegraphs take just one step.  Possibly native frames.
+* Native frames.
 
 ## License
 
