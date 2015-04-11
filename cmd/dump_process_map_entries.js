@@ -19,11 +19,25 @@
 // THE SOFTWARE.
 'use strict';
 
-require('./test_aggregation.js');
-require('./test_main.js');
-require('./test_stackvis_adaptor.js');
-require('./elf-atos/test_node_elf_atos');
-require('./elf-atos/test_address_map');
-require('./elf-atos/test_elf_loader');
-require('./elf-atos/test_proc_map_loader');
-require('./elf-atos/test_symbolicator');
+/* global console, process */
+/* eslint-disable no-console, no-process-exit */
+
+var procMapLoader = require('../loaders/proc_map_loader');
+
+function usage() {
+    console.error('Usage: dump_process_map_entries <pid>');
+    process.exit(1);
+}
+
+if (process.argv.length !== 3 || process.argv[2] === '-h') {
+    usage();
+}
+
+procMapLoader.load(parseInt(process.argv[2], 10), function printMap(err, map) {
+    if (err) {
+        console.error('Failed to load', err);
+        process.exit(1);
+    }
+
+    map.print(console);
+});

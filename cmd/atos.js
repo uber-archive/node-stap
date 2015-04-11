@@ -19,11 +19,30 @@
 // THE SOFTWARE.
 'use strict';
 
-require('./test_aggregation.js');
-require('./test_main.js');
-require('./test_stackvis_adaptor.js');
-require('./elf-atos/test_node_elf_atos');
-require('./elf-atos/test_address_map');
-require('./elf-atos/test_elf_loader');
-require('./elf-atos/test_proc_map_loader');
-require('./elf-atos/test_symbolicator');
+/* global console, process */
+/* eslint-disable no-console, no-process-exit */
+
+var atos = require('../lib/elf-atos/elf-atos');
+var util = require('util');
+
+function usage() {
+    console.error('Usage: atos <pid> <hex addr>');
+    process.exit(1);
+}
+
+if (process.argv.length !== 4) {
+    usage();
+}
+
+var pid = parseInt(process.argv[2], 10);
+var addr = parseInt(process.argv[3], 16);
+
+atos.getSymbolicatorForPid(pid, function printSym(err, symbolicator) {
+    if (err) {
+        console.error('Failed to symbolicate.');
+        process.exit(1);
+    }
+
+    var sym = symbolicator.atos(addr);
+    console.log(util.format('%s: %s', process.argv[3], sym));
+});
