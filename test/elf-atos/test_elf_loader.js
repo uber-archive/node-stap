@@ -26,7 +26,7 @@ var path = require('path');
 var _ = require('underscore');
 var elfLoader = require('../../lib/elf-atos/loaders/elf_loader');
 
-function elfTest(assert, binaryName, mainAddr, loadBase) {
+function elfTest(assert, binaryName, mainAddr, mainFileOff) {
     var binaryPath = path.join(__dirname, 'fixtures', binaryName);
     var testFile = path.join(binaryPath);
     elfLoader.load(testFile, function validateMap(err, addressMap) {
@@ -38,7 +38,14 @@ function elfTest(assert, binaryName, mainAddr, loadBase) {
 
         assert.ok(main, 'Find main');
         assert.equal(main.base, mainAddr, 'At right address');
-        assert.equal(main.loadBase, loadBase, 'With section load base');
+        assert.equal(main.mappedEntityOffset, mainFileOff, 'At right address');
+
+        var mainEntry = addressMap.getEntryForOffset(mainAddr);
+        assert.equal(mainEntry.name, 'main');
+
+        mainEntry = addressMap.getEntryForOffsetPhys(mainFileOff);
+        assert.equal(mainEntry.name, 'main');
+
         assert.end();
     });
 }
@@ -75,7 +82,7 @@ function elfTest(assert, binaryName, mainAddr, loadBase) {
  *   12 .text         000001c8  00000000004005c0  00000000004005c0  000005c0  2**4
  */
 test('load simple -rdynamic file', function testSimpleLoad(assert) {
-    elfTest(assert, 'simple-elf-dynamic', 0x4006a4, 0x400000);
+    elfTest(assert, 'simple-elf-dynamic', 0x4006a4, 0x4006a4 - 0x4005c0 + 0x5c0);
 });
 
 /*
@@ -155,5 +162,5 @@ test('load simple -rdynamic file', function testSimpleLoad(assert) {
  *   12 .text         000001c8  00000000004003d0  00000000004003d0  000003d0  2**4
  */
 test('load simple non-rdynamic file', function testSimpleLoad(assert) {
-    elfTest(assert, 'simple-elf', 0x4004b4, 0x400000);
+    elfTest(assert, 'simple-elf', 0x4004b4, 0x4004b4 - 0x4003d0 + 0x3d0);
 });

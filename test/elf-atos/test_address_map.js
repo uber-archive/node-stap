@@ -83,19 +83,20 @@ test('Entry with mapped entity offset', function testMappedOffset(assert) {
 });
 
 // Corresponds to section with base address 0x40000, symbol with address 0x40050
-test('Entry with fixed base address', function testFixedBase(assert) {
+test('Entry found based on file offset', function testFixedBase(assert) {
     var map = new AddressMap();
 
-    map.addEntry('entry1', 0x40100, 0x1000, 0, 0x40000);
-    assert.notOk(map.getEntryForOffset(0x50), 'Miss below range');
-    assert.notOk(map.getEntryForOffset(0x3000), 'Miss above range');
+    map.addEntry('entry1', 0x40100, 0x1000, 0x80000);
+    assert.notOk(map.getEntryForOffsetPhys(0x50), 'Miss below range');
+    assert.notOk(map.getEntryForOffsetPhys(0x200000), 'Miss above range');
+    assert.notOk(map.getEntryForOffsetPhys(0x40300),
+                                            'Even if in virtual range');
 
-    var entry = map.getEntryForOffset(0x150);
+    var entry = map.getEntryForOffsetPhys(0x80500);
     assert.ok(entry, 'Find within range');
     assert.equal(entry.base, 0x40100, 'With right base');
     assert.equal(entry.length, 0x1000, 'And right length');
-    assert.equal(entry.mappedEntityOffset, 0, 'And right offset');
-    assert.equal(entry.loadBase, 0x40000, 'And right section base');
+    assert.equal(entry.mappedEntityOffset, 0x80000, 'And right offset');
 
     assert.end();
 });
