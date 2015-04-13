@@ -18,12 +18,3 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 'use strict';
-
-require('./test_aggregation.js');
-require('./test_main.js');
-require('./test_stackvis_adaptor.js');
-require('./elf-atos/test_node_elf_atos');
-require('./elf-atos/test_address_map');
-require('./elf-atos/test_elf_loader');
-require('./elf-atos/test_proc_map_loader');
-require('./elf-atos/test_symbolicator');

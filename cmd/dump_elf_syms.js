@@ -19,11 +19,25 @@
 // THE SOFTWARE.
 'use strict';
 
-require('./test_aggregation.js');
-require('./test_main.js');
-require('./test_stackvis_adaptor.js');
-require('./elf-atos/test_node_elf_atos');
-require('./elf-atos/test_address_map');
-require('./elf-atos/test_elf_loader');
-require('./elf-atos/test_proc_map_loader');
-require('./elf-atos/test_symbolicator');
+/* global console, process */
+/* eslint-disable no-console, no-process-exit */
+
+var elfLoader = require('../lib/elf-atos/loaders/elf_loader');
+
+function usage() {
+    console.error('Usage: dump_elf_syms <path>');
+    process.exit(1);
+}
+
+if (process.argv.length !== 3 || process.argv[2] === '-h') {
+    usage();
+}
+
+elfLoader.load(process.argv[2], function printMap(err, map) {
+    if (err) {
+        console.error('Failed to load', err);
+        process.exit(1);
+    }
+
+    map.print(console);
+});

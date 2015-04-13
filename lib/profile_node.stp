@@ -1,3 +1,23 @@
+// Copyright (c) 2015 Uber Technologies, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
 /*
  * SystemTap script to print symbolicated javscript stacktraces.
  * Omits native frames and only prints userland (for now).  
@@ -6,24 +26,27 @@
  * to strip the low bit from their point arguments; functions cannot
  * assume that pointers they receive are clean.
  */
-global MAX_STACK_DEPTH                      = 100; // YOLO
+global MAX_STACK_DEPTH                      = 200; // YOLO
 
 // Offsets from FP to useful stuff
+global FP_RETURN_ADDRESS_OFFSET             = 0x08
 global FP_CONTEXT_OFFSET                    = -0x8
 global FP_FUNC_OFFSET                       = -0x10 // [FP - 16] contains pointer to func blob (also known as "marker")
 global FP_RECEIVER_OFFSET                   = 0x10
-global ENTRY_FRAME_FP_OFFSET                = -0x40 // Entry frames point to previous exit frame 
+//global FP_ENTRY_FRAME_FP_OFFSET             = -0x40 // Entry frames point to previous exit frame 
 global ARGUMENTS_ADAPTOR_CONTEXT_VAL        = 4
 
 // Frame types (enum)
+global FRAME_TYPE_NONE                      = 0
 global FRAME_TYPE_ENTRY                     = 1
-// global FRAME_TYPE_ENTRY_CONSTRUCT           = 2
+global FRAME_TYPE_ENTRY_CONSTRUCT           = 2
 global FRAME_TYPE_EXIT                      = 3
 global FRAME_TYPE_JAVA_SCRIPT               = 4
 //global FRAME_TYPE_OPTIMIZED               = 5
-//global FRAME_TYPE_INTERNAL                = 6
-//global FRAME_TYPE_CONSTRUCT               = 7
+global FRAME_TYPE_INTERNAL                  = 6
+global FRAME_TYPE_CONSTRUCT               = 7
 global FRAME_TYPE_ARGUMENTS_ADAPTOR         = 8
+global FRAME_TYPE_NATIVE                    = -1
 
 // Offset from base of JSFunction to shared info and context
 global JS_FUNC_SHARED_INFO_OFFSET           = 0x28 // Func blob + 0x28 contains pointer to shared info
@@ -70,6 +93,7 @@ global HEAP_MAP_TYPE_OFFSET                 = 0x0c
 global HEAP_OBJECT_FIXED_ARRAY_TYPE         = 0xa3
 global HEAP_OBJECT_BUILTIN_TYPE             = 0xae
 global HEAP_OBJECT_JS_FUNCTION_TYPE         = 0xb5
+global HEAP_OBJECT_CODE_TYPE                = 0x81
 
 // For fixed arrays, such as line ends in script
 global FIXED_ARRAY_LENGTH_OFFSET            = 0x08
@@ -291,9 +315,10 @@ function get_frame_type_for_fp(fp:long) {
 
     type_field = get_heap_object_type(func_ptr)
     if (type_field != HEAP_OBJECT_JS_FUNCTION_TYPE) {
-        //printf("unexpected type_field = %x\n", type_field);
-        // Probably we started accidentally in an exit frame
-        return FRAME_TYPE_EXIT
+        if (type_field == HEAP_OBJECT_CODE_TYPE) {
+            return FRAME_TYPE_INTERNAL
+        } 
+        return FRAME_TYPE_NATIVE
     }
 
     // Not trying to dig out inlined frames for now
@@ -304,7 +329,7 @@ function get_frame_type_for_fp(fp:long) {
  * Prints a JS function from a stack trace, determining
  * name and line number if possible.
  */
-function log_function(func_ptr:long) {
+function log_js_function(func_ptr:long) {
     func_ptr = strip_low_bit(func_ptr)
 
     shared_ptr = get_func_shared_info(func_ptr)
@@ -351,29 +376,49 @@ function frame_receiver_is_js_builtin(fp:long) {
     return receiver_type == HEAP_OBJECT_BUILTIN_TYPE
 }
 
+function print_non_js_frame(type:long, pc:long) {
+    if (type == FRAME_TYPE_NATIVE || type == FRAME_TYPE_NONE) {
+        printf("[native:%lx]", pc)
+    } else if (type == FRAME_TYPE_ENTRY) {
+        printf("[entry frame]");
+    } else if (type == FRAME_TYPE_ENTRY_CONSTRUCT) {
+        printf("[constructor entry]")
+    } else if (type == FRAME_TYPE_CONSTRUCT) {
+        printf("[constructor frame]")
+    } else if (type == FRAME_TYPE_ARGUMENTS_ADAPTOR) {
+        printf("[arguments adaptor]");
+    } else if (type == FRAME_TYPE_EXIT) {
+        printf("[exit frame]");
+    } else if (type == FRAME_TYPE_INTERNAL) {
+        printf("[internal frame]")
+    } else {
+        // Could be... but reflects some failure of understanding
+        printf("[native:%lx]", pc)
+    }
+
+    printf("\n");
+}
+
 probe timer.profile {
 	if (pid() == $1 && user_mode()) {
 		frame = u_register("bp")
+		pc = u_register("ip")
         type = get_frame_type_for_fp(frame) // sketchy here if it's an exit frame
-
+        
 		for (i = 0; i < MAX_STACK_DEPTH && frame != 0; i++) {
             if (type == FRAME_TYPE_JAVA_SCRIPT) {
                 func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
 
                 if (!frame_receiver_is_js_builtin(frame) && !func_is_hidden_builtin(func_ptr)) {
-                    log_function(func_ptr)
+                    log_js_function(func_ptr)
                 }
+            } else {
+                print_non_js_frame(type, pc)
             } 
 
-			//pc = user_uint64(frame + 8)
-            if (type == FRAME_TYPE_ENTRY) {
-                // Jump over native code
-                frame = read_user_pointer(frame + ENTRY_FRAME_FP_OFFSET)
-                type = FRAME_TYPE_EXIT
-            } else {
-                frame = read_user_pointer(frame)
-                type = get_frame_type_for_fp(frame) 
-            }
+            pc = read_user_pointer(frame + FP_RETURN_ADDRESS_OFFSET)
+            frame = read_user_pointer(frame)
+            type = get_frame_type_for_fp(frame)
 		}
         printf("\n");
 	}

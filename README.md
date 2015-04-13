@@ -1,6 +1,6 @@
 ## Synopsis
 
-Tools for profiling node.js 0.10  programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.
+Tools for profiling Node.js programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.
 Uses wrapper scripts and [node-stackvis](https://github.com/joyent/node-stackvis) to generate textual or SVG flamegraphs.
 Can also output text suitable for input to to [FlameGraph] (https://github.com/brendangregg/FlameGraph).
 
@@ -12,7 +12,7 @@ Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](http
 
 ## Caveats
 
-* Only profiles JavaScript frames.
+* Only works on 64-bit node processes.
 * Line numbers are best effort (not always available) and refer to the start of a function.
 * Only tested on node0.10 so far.
 * Stacks may omit inlined functions.
@@ -76,7 +76,8 @@ dh@dh:~/node-stap$
 
 ## Installation
 
-You'll need SystemTap installed on your system as well as the dbgsyms for your kernel.  Other than that, just clone and profile as above.
+You'll need SystemTap (and headers for your kernel version installed on your system.  Other than that, just clone and profile as above.
+Tested with SystemTap 2.7 on linux 3.2.0-79-generic.
 
 ## Tests
 
@@ -85,10 +86,6 @@ All things in the fullness of time.
 ## Contributors
 
 dh
-
-## Coming soon
-
-* Native frames.
 
 ## License
 

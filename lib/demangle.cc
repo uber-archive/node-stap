@@ -17,13 +17,29 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-'use strict';
 
-require('./test_aggregation.js');
-require('./test_main.js');
-require('./test_stackvis_adaptor.js');
-require('./elf-atos/test_node_elf_atos');
-require('./elf-atos/test_address_map');
-require('./elf-atos/test_elf_loader');
-require('./elf-atos/test_proc_map_loader');
-require('./elf-atos/test_symbolicator');
+#include <node.h>
+#include <cstdlib>
+#include <cxxabi.h>
+
+using namespace v8;
+
+Handle<Value> demangle(const Arguments& args) {
+    String::Utf8Value mangledStr(args[0]->ToString());
+
+    int status;
+    char * demangled = abi::__cxa_demangle(*mangledStr, NULL, NULL, & status);
+
+    HandleScope scope;
+    if (demangled) {
+         return scope.Close(String::New(demangled));
+    } else {
+         return args[0];
+    }
+}
+
+void init(Handle<Object> exports) {
+  NODE_SET_METHOD(exports, "demangle", demangle);
+}
+
+NODE_MODULE(demangle, init)
