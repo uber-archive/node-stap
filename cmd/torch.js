@@ -151,7 +151,7 @@ function main() {
     var time = args.durationSeconds * 1000;
     profiler.profile(args.pid, time, MAXACTIONS, function done(err, stacks) {
         if (err) {
-            return die('Failed to profile', err);
+            return die('Exiting due to profiling failure.', err);
         }
 
         if (args.outputFormat === 'flame') {
