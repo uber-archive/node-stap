@@ -48,7 +48,7 @@ test('One simple frame, output with count', function testTrivial(assert) {
         ' ',
         ' ',
         ' ',
-        'node`main',
+        'main',
         '   1'
     ];
 
@@ -61,8 +61,8 @@ test('Two simple frames, output with count', function testTwoFrames(assert) {
         ' ',
         ' ',
         ' ',
-        'node`foo',
-        'node`main',
+        'foo',
+        'main',
         '   1'
     ];
 
@@ -75,11 +75,11 @@ test('Two stacks, output with counts', function testTwoStacks(assert) {
         ' ',
         ' ',
         ' ',
-        'node`foo',
-        'node`main',
+        'foo',
+        'main',
         '   1',
-        'node`bar',
-        'node`main',
+        'bar',
+        'main',
         '   1'
     ];
 
@@ -94,8 +94,8 @@ test('One stack, truncate paths', function testPathTruncation(assert) {
         ' ',
         ' ',
         ' ',
-        'node`foo:foo.js:10',
-        'node`main:main.js:20',
+        'foo:foo.js:10',
+        'main:main.js:20',
         '   1'
     ];
 
