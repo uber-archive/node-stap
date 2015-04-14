@@ -32,7 +32,7 @@ var NodeProfiler = require('../lib/node_profiler');
 var StackVisAdaptor = require('../lib/stackvis_adaptor');
 var Bunyan = require('bunyan');
 
-var VALID_OUTPUT_FORMATS = ['text', 'flame', 'dtracetext'];
+var VALID_OUTPUT_FORMATS = ['text', 'flame', 'raw'];
 var MAX_TIME_SECONDS = 30;
 
 var log = new Bunyan({
@@ -66,9 +66,17 @@ function pidExists(pid) {
     return true;
 }
 
+function usage() {
+    console.error('Usage: torch <pid> <text|flame|raw> <duration (s)>');
+    console.error('\ttext: textual flame graph.');
+    console.error('\tflame: svg flame graph.');
+    console.error('\traw: format suitable for input to FlameGraph tools.');
+    process.exit(1);
+}
+
 function parseArgs(argv) {
     if (argv.length !== 5) {
-        die('Usage: torch <pid> <text|flame> <duration (s)>');
+        usage();
     }
 
     var pid = parseInt(argv[2], 10);
@@ -78,7 +86,7 @@ function parseArgs(argv) {
 
     var outputFormat = argv[3];
     if (!_.contains(VALID_OUTPUT_FORMATS, outputFormat)) {
-        die('Output format must be "flame," "dtracetext," or "text"');
+        die('Output format must be "flame," "raw," or "text"');
     }
 
     var durationSeconds = parseInt(argv[4], 10);
@@ -148,7 +156,7 @@ function main() {
 
         if (args.outputFormat === 'flame') {
             outputFlameGraph(stacks);
-        } else if (args.outputFormat === 'dtracetext') {
+        } else if (args.outputFormat === 'raw') {
             outputDTraceText(stacks);
         } else {
             outputText(stacks);

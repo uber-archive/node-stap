@@ -21,8 +21,11 @@ Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](http
 ## Basic Usage
 
 ```
-dh@dh:~/node-stap$ sudo cmd/torch.js
-Usage: torch <pid> <text|flame> <duration (s)>
+[~/uber/node-stap]$ sudo cmd/torch.js 
+Usage: torch <pid> <text|flame|raw> <duration (s)>
+    text: textual flame graph.
+    flame: svg flame graph.
+    raw: format suitable for input to FlameGraph tools.
 ```
 
 ## SVG Example
@@ -34,49 +37,50 @@ Sampling 24701 for 10s, outputting flame.
 dh@dh:~/node-stap$ # done
 ```
 
+## Raw Example
+
+```
+dh@dh:~/node-stap$ sudo node cmd/torch.js 2291 raw 10 > ../raw.txt
+Sampling 2291 for 10s, outputting raw.
+
+dh@dh:~/node-stap$ cd ../FlameGraph/
+dh@dh:~/FlameGraph$ ./stackcollapse.pl < ../raw.txt  > ../collapsed.txt
+dh@dh:~/FlameGraph$ ./flamegraph.pl < ../collapsed.txt  > ../flame.svg
+
+```
+
 ## Text Example
 
 ```
-dh@dh:~$ cat test.js
-while (true) {
-    console.log(new Error().stack)
+dh@dh:~/node-stap$ cat ../test.js
+var dummy = new Error().stack; // Persuade v8 to compute line numbers
+
+while(true) {
+    console.log("Hello!");
 }
-dh@dh:~$ node test.js > /dev/null &
-[1] 26314
-dh@dh:~$ cd node-stap/
-dh@dh:~/node-stap$ sudo ./cmd/torch.js 26314 text 10
-Sampling 26314 for 10s, outputting text.
+dh@dh:~/node-stap$ node ../test.js  > /dev/null & 
+[1] 2291
+dh@dh:~/node-stap$ sudo node cmd/torch.js 2291 text 10
+Sampling 2291 for 10s, outputting text.
 
-Total samples: 873
-873 [empty]:[unknown]:26
-  873 startup:[unknown]:29
-    873 Module.runMain:module.js:494
-      873 Module._load:module.js:274
-        873 Module.load:module.js:345
-          873 Module._extensions..js:module.js:471
-            873 Module._compile:module.js:373
-              873 [empty]:/home/dh/test.js:0
-                78 Console.log:console.js:[unknown]
-                  78 Console.log:console.js:[unknown]
-                    56 SyncWriteStream.write:fs.js:[unknown]
-                      56 SyncWriteStream.write:fs.js:[unknown]
-                        45 Buffer:buffer.js:[unknown]
-                          45 Buffer:buffer.js:[unknown]
-                            27 Buffer.write:buffer.js:[unknown]
-                              27 Buffer.write:buffer.js:[unknown]
-                        11 fs.writeSync:fs.js:[unknown]
-                          11 fs.writeSync:fs.js:[unknown]
-                    21 exports.format:util.js:[unknown]
-                1 [empty]::[unknown]
-                4 Module:module.js:36
-                4 [empty]:[unknown]:203
-
-dh@dh:~/node-stap$
+Total samples: 747
+747 node::Start(int, char**):[native]
+  747 node::Load(v8::Handle<v8::Object>):[native]
+    747 v8::Function::Call(v8::Handle<v8::Object>, int, v8::Handle<v8::Value>*):[native]
+      747 v8::internal::Execution::Call(v8::internal::Handle<v8::internal::Object>, v8::internal::Handle<v8::internal::Object>, int, v8::internal::Handle<v8::internal::Object>*, bool*, bool):[native]
+        747 [0x72a82a in /usr/bin/nodejs]:[native]
+          747 [entry frame]
+            747 [internal frame]
+              747 [empty]:[unknown]:26
+                747 startup:[unknown]:29
+                  747 Module.runMain:module.js:494
+                    747 Module._load:module.js:274
+                        ... [more]
 ```
 
 ## Installation
 
-You'll need SystemTap (and headers for your kernel version installed on your system.  Other than that, just clone and profile as above.
+You'll need SystemTap and headers for your kernel version installed on your system.  Other than that, just clone and profile as above.
 Tested with SystemTap 2.7 on linux 3.2.0-79-generic.
 
 ## Tests
@@ -86,6 +90,10 @@ All things in the fullness of time.
 ## Contributors
 
 dh
+
+## Future Work
+
+32-bit processes, edge cases in native code symbolication.
 
 ## License
 
