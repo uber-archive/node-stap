@@ -69,7 +69,7 @@ function pidExists(pid) {
 function usage() {
     console.error('Usage: torch <pid> <text|flame|raw> <duration (s)>');
     console.error('\ttext: textual flame graph.');
-    console.error('\tflame: svg flame graph.');
+    console.error('\tflame: html flame graph.');
     console.error('\traw: format suitable for input to FlameGraph tools.');
     process.exit(1);
 }
@@ -114,7 +114,7 @@ function outputText(stacks) {
 function outputFlameGraph(stacks) {
     /* eslint-disable new-cap */
     var reader = new stackvis.readerLookup('dtrace');
-    var writer = new stackvis.writerLookup('flamegraph-svg');
+    var writer = new stackvis.writerLookup('flamegraph-d3');
     /* eslint-enable new-cap */
 
     var adaptor = new StackVisAdaptor(stacks);
