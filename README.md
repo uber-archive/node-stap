@@ -1,7 +1,7 @@
 ## Synopsis
 
 Tools for profiling Node.js programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.
-Uses wrapper scripts and [node-stackvis](https://github.com/joyent/node-stackvis) to generate textual or SVG flamegraphs.
+Uses wrapper scripts and [node-stackvis](https://github.com/joyent/node-stackvis) to generate textual or HTML flamegraphs.
 Can also output text suitable for input to to [FlameGraph] (https://github.com/brendangregg/FlameGraph).
 
 Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](https://www.joyent.com/blog/understanding-dtrace-ustack-helpers).
@@ -24,14 +24,14 @@ Inspired and informed by Dave Pacheco's excellent [V8 DTrace ustack helper](http
 [~/uber/node-stap]$ sudo cmd/torch.js 
 Usage: torch <pid> <text|flame|raw> <duration (s)>
     text: textual flame graph.
-    flame: svg flame graph.
+    flame: html flame graph.
     raw: format suitable for input to FlameGraph tools.
 ```
 
-## SVG Example
+## HTML Example
 
 ```
-dh@dh:~/node-stap$ sudo cmd/torch.js 24701 flame 10 > /tmp/flame.svg
+dh@dh:~/node-stap$ sudo cmd/torch.js 24701 flame 10 > /tmp/flame.html
 Sampling 24701 for 10s, outputting flame.
 
 dh@dh:~/node-stap$ # done
