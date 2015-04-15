@@ -37,7 +37,6 @@
     "tape": "^3.4.0",
     "uber-licence": "^1.2.0"
   },
-  "gypfile": true,
   "licenses": [
     {
       "type": "MIT",
@@ -45,7 +44,6 @@
     }
   ],
   "scripts": {
-    "install": "node-gyp rebuild",
     "add-licence": "uber-licence",
     "check-licence": "uber-licence --dry",
     "check-ls": "npm ls 1>/dev/null",
