@@ -1,6 +1,6 @@
 {
   "name": "node-stap",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Tools for profiling Node with SystemTap.",
   "keywords": [],
   "author": "Dan Heller <dh@uber.com>",
