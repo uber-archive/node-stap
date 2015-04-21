@@ -399,6 +399,26 @@ function print_non_js_frame(type:long, pc:long) {
     printf("\n");
 }
 
+// Exit after user-specified number of seconds
+global start_time_ms;
+global sampling_duration_ms = $2
+
+probe begin {
+    start_time_ms = gettimeofday_ms()
+}
+
+/*
+ * When a timer first fires isn't documented, though it appears to be
+ * (load time) + period.  We'll just make sure it's within a second of the
+ * goal.
+ */
+probe timer.sec(1)
+{
+    if (gettimeofday_ms() - start_time_ms > sampling_duration_ms) {
+        exit()
+    }
+}
+
 probe timer.profile {
 	if (pid() == $1 && user_mode()) {
 		frame = u_register("bp")
