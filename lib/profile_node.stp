@@ -419,12 +419,12 @@ probe timer.sec(1)
     }
 }
 
-probe timer.profile {
+function take_node_backtrace() {
 	if (pid() == $1 && user_mode()) {
 		frame = u_register("bp")
 		pc = u_register("ip")
         type = get_frame_type_for_fp(frame) // sketchy here if it's an exit frame
-        
+
 		for (i = 0; i < MAX_STACK_DEPTH && frame != 0; i++) {
             if (type == FRAME_TYPE_JAVA_SCRIPT) {
                 func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
@@ -434,7 +434,7 @@ probe timer.profile {
                 }
             } else {
                 print_non_js_frame(type, pc)
-            } 
+            }
 
             pc = read_user_pointer(frame + FP_RETURN_ADDRESS_OFFSET)
             frame = read_user_pointer(frame)
@@ -442,4 +442,18 @@ probe timer.profile {
 		}
         printf("\n");
 	}
+}
+
+probe timer.profile {
+    /*
+     * Since we run completely asynchronously with respect to
+     * V8's activities, we can actually catch the heap in temporarily
+     * inconsistent states, causing bad copyins and such.  Try-catch
+     * so we drop a data point in that case rather than halting.
+     */
+    try {
+        take_node_backtrace()
+    } catch {
+        next
+    }
 }
