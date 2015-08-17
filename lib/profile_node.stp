@@ -202,11 +202,14 @@ function get_shared_info_line_number(shared_info:long) {
  */
 function print_user_utf16_string(data_ptr:long, length:long) {
     data_ptr = strip_low_bit(data_ptr)
+    str = ""
     for (i = 0; i < 200 && i < length; i++) {
         c = user_uint16(data_ptr)
-        printf("%c", c);
+        str .= sprintf("%c", c);
         data_ptr += 2
     }
+
+    print(str)
 }
 
 /* 
