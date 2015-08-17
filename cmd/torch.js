@@ -32,7 +32,7 @@ var NodeProfiler = require('../lib/node_profiler');
 var StackVisAdaptor = require('../lib/stackvis_adaptor');
 var Bunyan = require('bunyan');
 
-var VALID_OUTPUT_FORMATS = ['text', 'flame', 'raw'];
+var VALID_OUTPUT_FORMATS = ['text', 'flame', 'raw', 'svg'];
 var MAX_TIME_SECONDS = 30;
 
 var log = new Bunyan({
@@ -67,9 +67,10 @@ function pidExists(pid) {
 }
 
 function usage() {
-    console.error('Usage: torch <pid> <text|flame|raw> <duration (s)>');
+    console.error('Usage: torch <pid> <text|flame|svg|raw> <duration (s)>');
     console.error('\ttext: textual flame graph.');
     console.error('\tflame: html flame graph.');
+    console.error('\tsvg: svg flame graph.');
     console.error('\traw: format suitable for input to FlameGraph tools.');
     process.exit(1);
 }
@@ -134,6 +135,79 @@ function outputDTraceText(stacks) {
     adaptor.resume();
 }
 
+function outputSVG(stacks) {
+    var path = require('path');
+    var os = require('os');
+    var fs = require('fs');
+    var exec = require('child_process').exec;
+
+    var adaptor = new StackVisAdaptor(stacks);
+    var tempFile = path.join(os.tmpDir(), 'stack.raw');
+    var tempFile2 = path.join(os.tmpDir(), 'stack.folded');
+
+    adaptor.pipe(fs.createWriteStream(tempFile))
+        .once('finish', fileWritten);
+
+    adaptor.resume();
+
+    function fileWritten() {
+        var stackCollapse = path.join(
+            __dirname,
+            '..',
+            'bg-flamegraphs',
+            'stackcollapse-stap.pl'
+        );
+
+        var command = [
+            'perl ',
+            stackCollapse,
+            ' ',
+            tempFile,
+            ' | tr -d "\\0"'
+        ].join('');
+
+        exec(command, {
+            maxBuffer: 1024 * 1024 * 200
+        }, onOut);
+    }
+
+    function onOut(err, stdout) {
+        if (err) {
+            return die('Could not stack collapse. ' + err.message);
+        }
+
+        fs.writeFile(tempFile2, stdout, onFoldedWritten);
+    }
+
+    function onFoldedWritten() {
+        var flamegraph = path.join(
+            __dirname,
+            '..',
+            'bg-flamegraphs',
+            'flamegraph.pl'
+        );
+
+        var command = [
+            'perl ',
+            flamegraph,
+            ' ',
+            tempFile2
+        ].join('');
+
+        exec(command, {
+            maxBuffer: 1024 * 1024 * 200
+        }, onSVGOut);
+    }
+
+    function onSVGOut(err, stdout) {
+        if (err) {
+            return die('Could not generate svg. ' + err.message);
+        }
+
+        console.log(stdout.toString());
+    }
+}
+
 function main() {
     if (!amIRoot()) {
         die('Root privileges required.');
@@ -158,6 +232,8 @@ function main() {
             outputFlameGraph(stacks);
         } else if (args.outputFormat === 'raw') {
             outputDTraceText(stacks);
+        } else if (args.outputFormat === 'svg') {
+            outputSVG(stacks);
         } else {
             outputText(stacks);
         }
