@@ -200,7 +200,7 @@ function get_shared_info_line_number(shared_info:long) {
  * Just grabbing the two-byte value and treating it as if it were ascii.
  * Works for most unicode chars!
  */
-function print_user_utf16_string(data_ptr:long, length:long) {
+function get_user_utf16_string(data_ptr:long, length:long) {
     data_ptr = strip_low_bit(data_ptr)
     str = ""
     for (i = 0; i < 200 && i < length; i++) {
@@ -209,18 +209,20 @@ function print_user_utf16_string(data_ptr:long, length:long) {
         data_ptr += 2
     }
 
-    print(str)
+    return str
 }
 
 /* 
  * Cons strings are printed by recursively printing the referenced
  * strings
  */
-function print_cons_string(string_ptr:long, depth:long) {
+function get_cons_string(string_ptr:long, depth:long) {
     first = read_user_pointer(string_ptr + CONS_STRING_FIRST_OFFSET)
     second = read_user_pointer(string_ptr + CONS_STRING_SECOND_OFFSET)
-    print_user_string_internal(first, depth + 1)
-    print_user_string_internal(second, depth + 1)
+    first_string = get_user_string_internal(first, depth + 1)
+    second_string = get_user_string_internal(second, depth + 1)
+
+    return (first_string . second_string)
 }
 
 function is_string_empty(string_ptr:long) {
@@ -245,10 +247,9 @@ function get_string_length(string_ptr:long) {
  * Note, we enforce our own max depth to avoid blowing our budget
  * for computation in prove context.
  */
-function print_user_string_internal(string_addr:long, depth:long) {
+function get_user_string_internal(string_addr:long, depth:long) {
     if (depth >= MAX_CONS_STRING_DEPTH) {
-        printf("...");
-        return 0
+        return "...";
     }
 
     string_addr = strip_low_bit(string_addr)
@@ -258,23 +259,23 @@ function print_user_string_internal(string_addr:long, depth:long) {
     //printf("Printing string with shape %x, length %x\n", string_shape, string_length)
 
     if (string_length == 0) {
-        printf("[empty]")
+        return "[empty]"
     } else {
         if (string_shape == (STRING_ENC_ASCII|STRING_LAYOUT_SEQ)) {
-            printf("%s", user_string_n(string_addr + SEQ_STRING_DATA_OFFSET, string_length))
+            return user_string_n(string_addr + SEQ_STRING_DATA_OFFSET, string_length)
         } else if (string_shape == (STRING_LAYOUT_SEQ))  {
-            print_user_utf16_string(string_addr + SEQ_STRING_DATA_OFFSET, string_length)
+            return get_user_utf16_string(string_addr + SEQ_STRING_DATA_OFFSET, string_length)
         } else if ((string_shape & STRING_LAYOUT_MASK) == STRING_LAYOUT_CONS) {
-            print_cons_string(string_addr, depth + 1)
+            return get_cons_string(string_addr, depth + 1)
         } else {
-            printf("[unknown]");
+            return "[unknown]"
         }
     }
 }
 
 // Root of recursion
-function print_user_string(string_addr:long) {
-    print_user_string_internal(string_addr, 0)
+function get_user_string(string_addr:long) {
+    return get_user_string_internal(string_addr, 0)
 }
 
 function get_shared_info_file_name(shared_info:long) {
@@ -328,28 +329,36 @@ function get_frame_type_for_fp(fp:long) {
     return FRAME_TYPE_JAVA_SCRIPT
 }
 
+global function_cache
+
 /*
- * Prints a JS function from a stack trace, determining
+ * Get a JS function from a stack trace, determining
  * name and line number if possible.
  */
-function log_js_function(func_ptr:long) {
-    func_ptr = strip_low_bit(func_ptr)
-
-    shared_ptr = get_func_shared_info(func_ptr)
+function get_js_function(func_ptr:long) {
+    shared_ptr = get_func_shared_info(strip_low_bit(func_ptr))
     name_ptr = get_shared_info_function_name(shared_ptr)
+
+    if (function_cache[shared_ptr, name_ptr] != "") {
+        return function_cache[shared_ptr, name_ptr]
+    }
+
     file_name = get_shared_info_file_name(shared_ptr)
 
-    print_user_string(name_ptr)
-    printf(":")
-    print_user_string(file_name)
+    file_name_string = get_user_string(file_name)
+    name_string = get_user_string(name_ptr)
 
     line_number = get_shared_info_line_number(shared_ptr)
     if (line_number >= 0) {
-        printf(":%d", line_number)
+        line_number_string = sprintf("%d", line_number)
     } else {
-        printf(":[unknown]");
+        line_number_string = "[unknown]"
     }
-    println("")
+
+    js_function_string =  sprintf("%s:%s:%s", name_string, file_name_string, line_number_string)
+
+    function_cache[shared_ptr, name_ptr] = js_function_string
+    return js_function_string
 }
 
 function get_func_shared_info(func:long) {
@@ -402,6 +411,11 @@ function print_non_js_frame(type:long, pc:long) {
     printf("\n");
 }
 
+function print_js_function(func_ptr:long) {
+    js_function = get_js_function(func_ptr)
+    println(js_function)
+}
+
 // Exit after user-specified number of seconds
 global start_time_ms;
 global sampling_duration_ms = $2
@@ -433,11 +447,11 @@ probe timer.profile {
                 func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
 
                 if (!frame_receiver_is_js_builtin(frame) && !func_is_hidden_builtin(func_ptr)) {
-                    log_js_function(func_ptr)
+                    print_js_function(func_ptr)
                 }
             } else {
                 print_non_js_frame(type, pc)
-            } 
+            }
 
             pc = read_user_pointer(frame + FP_RETURN_ADDRESS_OFFSET)
             frame = read_user_pointer(frame)
