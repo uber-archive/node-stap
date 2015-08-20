@@ -49,11 +49,6 @@ function die(msg) {
     process.exit(1);
 }
 
-// Should really be geteuid
-function amIRoot() {
-    return process.getuid() === 0;
-}
-
 function pidExists(pid) {
     // jscs:disable disallowKeywords
     try {
@@ -135,10 +130,6 @@ function outputDTraceText(stacks) {
 }
 
 function main() {
-    if (!amIRoot()) {
-        die('Root privileges required.');
-    }
-
     var args = parseArgs(process.argv);
     if (!pidExists(args.pid)) {
         die(util.format('Process %d does not exist.', args.pid));
@@ -168,7 +159,6 @@ if (require.main === module) {
     process.nextTick(main);
 } else {
     module.exports = {
-        amIRoot: amIRoot,
         parseArgs: parseArgs,
         pidExists: pidExists
     };
