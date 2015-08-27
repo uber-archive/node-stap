@@ -24,10 +24,12 @@
 /* global process, console */
 /* eslint-disable no-console, no-process-exit */
 
+var fs = require('fs');
 var util = require('util');
 var stackvis = require('stackvis');
 var _ = require('underscore');
 var aggregation = require('../lib/aggregation');
+var HeapReader = require('../lib/heap-reader.js');
 var NodeProfiler = require('../lib/node_profiler');
 var StackVisAdaptor = require('../lib/stackvis_adaptor');
 var Bunyan = require('bunyan');
@@ -129,6 +131,29 @@ function outputDTraceText(stacks) {
     adaptor.resume();
 }
 
+function hexToNumber(str) {
+    return  Number('0x' + str);
+}
+
+function resolveStackFrames(pid, stacks) {
+    var hex = /^[0-9a-fA-F]+:/
+    var fd = fs.openSync('/proc/' + pid + '/mem', 'r');
+    var reader = new HeapReader(fd);    
+
+    stacks.forEach(function resolveStack(stack) {
+        stack.forEach(function resolveFrame(stackFrame, i) {
+            var addr = hex.exec(stackFrame);
+
+            if (addr && addr.length === 1) {
+                var numAddr = hexToNumber(addr[0].slice(0, -1));
+                stack[i] = stackFrame.replace(hex, reader.readFunction(numAddr));
+            }
+        });
+    });
+
+    fs.close(fd);
+}
+
 function main() {
     var args = parseArgs(process.argv);
     if (!pidExists(args.pid)) {
@@ -144,6 +169,8 @@ function main() {
         if (err) {
             return die('Exiting due to profiling failure.', err);
         }
+
+        resolveStackFrames(args.pid, stacks);
 
         if (args.outputFormat === 'flame') {
             outputFlameGraph(stacks);

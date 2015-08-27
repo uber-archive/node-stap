@@ -285,6 +285,7 @@ function get_shared_info_file_name(shared_info:long) {
 }
 
 function get_shared_info_function_name(shared_info:long) {
+    //printf("shared info pointer: %x", shared_info);
     name_ptr = read_user_pointer(shared_info + SHARED_INFO_NAME_OFFSET)
     if (is_string_empty(name_ptr)) {
         name_ptr = read_user_pointer(shared_info + SHARED_INFO_INFERRED_NAME_OFFSET)
@@ -355,7 +356,7 @@ function get_js_function(func_ptr:long) {
         line_number_string = "[unknown]"
     }
 
-    js_function_string =  sprintf("%s:%s:%s", name_string, file_name_string, line_number_string)
+    js_function_string =  sprintf("%x::%s:%s:%s", func_ptr, name_string, file_name_string, line_number_string)
 
     function_cache[shared_ptr, name_ptr] = js_function_string
     return js_function_string
