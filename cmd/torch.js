@@ -146,7 +146,11 @@ function resolveStackFrames(pid, stacks) {
 
             if (addr && addr.length === 1) {
                 var numAddr = hexToNumber(addr[0].slice(0, -1));
-                stack[i] = stackFrame.replace(hex, reader.readFunction(numAddr));
+                stack[i] = stackFrame.replace(
+                    hex,
+                    reader.readFunction(numAddr) + 
+                        '(0x' + addr[0].slice(0, -1)  +  ')'
+                );
             }
         });
     });
