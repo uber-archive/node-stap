@@ -337,28 +337,23 @@ global function_cache
  * name and line number if possible.
  */
 function get_js_function(func_ptr:long) {
-    shared_ptr = get_func_shared_info(strip_low_bit(func_ptr))
-    name_ptr = get_shared_info_function_name(shared_ptr)
+    // shared_ptr = get_func_shared_info(strip_low_bit(func_ptr))
+    // name_ptr = get_shared_info_function_name(shared_ptr)
 
-    if (function_cache[shared_ptr, name_ptr] != "") {
-        return function_cache[shared_ptr, name_ptr]
-    }
+    // file_name = get_shared_info_file_name(shared_ptr)
 
-    file_name = get_shared_info_file_name(shared_ptr)
+    // file_name_string = get_user_string(file_name)
+    // name_string = get_user_string(name_ptr)
 
-    file_name_string = get_user_string(file_name)
-    name_string = get_user_string(name_ptr)
+    // line_number = get_shared_info_line_number(shared_ptr)
+    // if (line_number >= 0) {
+        // line_number_string = sprintf("%d", line_number)
+    // } else {
+        //line_number_string = "[unknown]"
+    //}
 
-    line_number = get_shared_info_line_number(shared_ptr)
-    if (line_number >= 0) {
-        line_number_string = sprintf("%d", line_number)
-    } else {
-        line_number_string = "[unknown]"
-    }
+    js_function_string =  sprintf("0x%x", func_ptr);
 
-    js_function_string =  sprintf("%x::%s:%s:%s", func_ptr, name_string, file_name_string, line_number_string)
-
-    function_cache[shared_ptr, name_ptr] = js_function_string
     return js_function_string
 }
 

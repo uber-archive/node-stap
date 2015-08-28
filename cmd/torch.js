@@ -131,12 +131,8 @@ function outputDTraceText(stacks) {
     adaptor.resume();
 }
 
-function hexToNumber(str) {
-    return  Number('0x' + str);
-}
-
 function resolveStackFrames(pid, stacks) {
-    var hex = /^[0-9a-fA-F]+:/
+    var hex = /^0x[0-9a-fA-F]+$/
     var fd = fs.openSync('/proc/' + pid + '/mem', 'r');
     var reader = new HeapReader(fd);    
 
@@ -145,12 +141,7 @@ function resolveStackFrames(pid, stacks) {
             var addr = hex.exec(stackFrame);
 
             if (addr && addr.length === 1) {
-                var numAddr = hexToNumber(addr[0].slice(0, -1));
-                stack[i] = stackFrame.replace(
-                    hex,
-                    reader.readFunction(numAddr) + 
-                        '(0x' + addr[0].slice(0, -1)  +  ')'
-                );
+                stack[i] = reader.readFunction(Number(addr[0]));
             }
         });
     });
