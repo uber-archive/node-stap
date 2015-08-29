@@ -132,16 +132,25 @@ function outputDTraceText(stacks) {
 }
 
 function resolveStackFrames(pid, stacks) {
-    var hex = /^0x[0-9a-fA-F]+$/
+    var hex = /^0x[0-9a-fA-F]+$/;
     var fd = fs.openSync('/proc/' + pid + '/mem', 'r');
-    var reader = new HeapReader(fd);    
+    var reader = new HeapReader(fd);
+    var cache = {};
 
     stacks.forEach(function resolveStack(stack) {
         stack.forEach(function resolveFrame(stackFrame, i) {
             var addr = hex.exec(stackFrame);
 
             if (addr && addr.length === 1) {
-                stack[i] = reader.readFunction(Number(addr[0]));
+                var txtAddr = addr[0];
+                var numAddr = Number(txtAddr);
+                var result = cache[txtAddr];
+
+                if (!result) {
+                    result = cache[txtAddr] = reader.readFunction(numAddr);
+                }
+
+                stack[i] = result;
             }
         });
     });
