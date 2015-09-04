@@ -191,6 +191,7 @@ if (require.main === module) {
 } else {
     module.exports = {
         parseArgs: parseArgs,
+        main: main,
         pidExists: pidExists
     };
 }
