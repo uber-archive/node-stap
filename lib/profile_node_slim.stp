@@ -1,0 +1,275 @@
+// Copyright (c) 2015 Uber Technologies, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+/*
+ * SystemTap script to print symbolicated javscript stacktraces.
+ * Omits native frames and only prints userland (for now).  
+ *
+ * Note: convention is that functions should always expect
+ * to strip the low bit from their point arguments; functions cannot
+ * assume that pointers they receive are clean.
+ */
+global MAX_STACK_DEPTH                      = 200; // YOLO
+
+// Offsets from FP to useful stuff
+global FP_RETURN_ADDRESS_OFFSET             = 0x08
+global FP_CONTEXT_OFFSET                    = -0x8
+global FP_FUNC_OFFSET                       = -0x10 // [FP - 16] contains pointer to func blob (also known as "marker")
+global FP_RECEIVER_OFFSET                   = 0x10
+// global FP_ENTRY_FRAME_FP_OFFSET             = -0x40 // Entry frames point to previous exit frame 
+global ARGUMENTS_ADAPTOR_CONTEXT_VAL        = 4
+
+// Frame types (enum)
+global FRAME_TYPE_NONE                      = 0
+global FRAME_TYPE_ENTRY                     = 1
+global FRAME_TYPE_ENTRY_CONSTRUCT           = 2
+global FRAME_TYPE_EXIT                      = 3
+global FRAME_TYPE_JAVA_SCRIPT               = 4
+//global FRAME_TYPE_OPTIMIZED                  = 5
+global FRAME_TYPE_INTERNAL                  = 6
+global FRAME_TYPE_CONSTRUCT                 = 7
+global FRAME_TYPE_ARGUMENTS_ADAPTOR         = 8
+global FRAME_TYPE_NATIVE                    = -1
+
+// Offset from base of JSFunction to shared info and context
+// global JS_FUNC_SHARED_INFO_OFFSET           = 0x28 // Func blob + 0x28 contains pointer to shared info
+global JS_FUNC_CONTEXT_OFFSET               = 0x30
+
+// "Global object" in context, in JS sense
+global CONTEXT_GLOBAL_OBJECT_INDEX          = 0x03
+
+// Function shared info (function metadata, shared across all instances of a given function)
+// global SHARED_INFO_NAME_OFFSET              = 0x08
+// global SHARED_INFO_INFERRED_NAME_OFFSET     = 0x50 // Best effort name if no explicit name
+// global SHARED_INFO_SCRIPT_OFFSET            = 0x40 
+// global SHARED_INFO_COMPILER_HINTS_OFFSET    = 0x8c // For detecting code we should hide
+// global SHARED_INFO_COMPILER_NATIVE_HINT     = 0x400
+// global SHARED_INFO_START_POSITION_AND_TYPE_OFFSET = 0x84 // Start position in file, to find line 
+// global SHARED_INFO_START_POSITION_SHIFT     = 0x02 // Start pos needs a shift
+
+// Offsets from script 
+// global SCRIPT_NAME_OFFSET                   = 0x10
+// global SCRIPT_LINE_OFFSET_OFFSET            = 0x18
+// global SCRIPT_LINE_ENDS_OFFSET              = 0x58 // index: line number.  value: offset from file start to EOL
+
+// JavaScript Strings
+// global STRING_LENGTH_OFFSET                 = 0x08
+// global SEQ_STRING_DATA_OFFSET               = 0x18 // Offset to useful bytes in contiguous string
+// global CONS_STRING_FIRST_OFFSET             = 0x18 // Cons strings are recursive, reference two other strings
+// global CONS_STRING_SECOND_OFFSET            = 0x20
+// global MAX_CONS_STRING_DEPTH                = 5 // Can only do so much in a probe
+
+// For determining layout of string 
+// global STRING_REPR_MASK                     = 0x07
+// global STRING_ENC_ASCII                     = 0x04 // If not ascii, implicitly UTF-16
+// global STRING_LAYOUT_MASK                   = 0x03
+// global STRING_LAYOUT_SEQ                    = 0x00 // Contiguous
+// global STRING_LAYOUT_CONS                   = 0x01 // Recursive, references two others
+// global STRING_LAYOUT_EXT                    = 0x02 // Not in JS heap, currently unsupported
+// global STRING_LAYOUT_SLICED                 = 0x03 // Subsequence of another string, currently unsupported
+
+// Offset from all heap objects to map ptr (metadata)
+global HEAP_OBJECT_MAP_OFFSET               = 0x00 
+global HEAP_MAP_TYPE_OFFSET                 = 0x0c
+
+// Heap object types
+// global HEAP_OBJECT_FIXED_ARRAY_TYPE         = 0xa3
+global HEAP_OBJECT_BUILTIN_TYPE             = 0xae
+global HEAP_OBJECT_JS_FUNCTION_TYPE         = 0xb5
+global HEAP_OBJECT_CODE_TYPE                = 0x81
+
+// For fixed arrays, such as line ends in script
+// global FIXED_ARRAY_LENGTH_OFFSET            = 0x08
+// global FIXED_ARRAY_HEADER_SIZE              = 0x10
+
+// Context object
+global CONTEXT_HEADER_SIZE                  = 0x10
+
+/*
+ * An SMI is an int, as opposed to a pointer, identified by having low bit 0
+ * On 64-bit platforms, the value lives in the upper 32 bits of a 64 bit field
+ */
+function is_smi(addr:long) {
+    return (addr & 0x1) == 0x0
+}
+
+function smi_value(ptr:long) {
+    return ptr >> 32;
+}
+
+/*
+ * For pointers, must strip bit 0, which is a tag
+ */
+function strip_low_bit(addr:long) {
+    return addr & ~1
+}
+
+function read_user_pointer(addr:long) {
+    return strip_low_bit(user_uint64(strip_low_bit(addr)))
+}
+
+/* 
+ * Context for evaluating JS code (notably for finding global obj)
+ */
+function context_get(array_addr:long, idx:long) {
+    return read_user_pointer(array_addr + CONTEXT_HEADER_SIZE + idx * 0x8)
+}
+
+function get_heap_object_type(obj_ptr:long) {
+    map_ptr = read_user_pointer(obj_ptr + HEAP_OBJECT_MAP_OFFSET)
+    return user_uint8(map_ptr + HEAP_MAP_TYPE_OFFSET)
+}
+
+/*
+ * Two steps: check for argument adaptor frame by 
+ * checking for SMI in "context" offset from FP, 
+ * then check function pointer slot (which will be an SMI,
+ * containing an enum value, or else a pointer to a JSFunction)
+ */
+function get_frame_type_for_fp(fp:long) {
+    fp = strip_low_bit(fp)
+
+    context_val = user_uint64(fp + FP_CONTEXT_OFFSET)
+    if (is_smi(context_val) && smi_value(context_val) == ARGUMENTS_ADAPTOR_CONTEXT_VAL) {
+        return FRAME_TYPE_ARGUMENTS_ADAPTOR
+    }
+
+    func_ptr = user_uint64(fp + FP_FUNC_OFFSET)
+    if (is_smi(func_ptr)) {
+        return smi_value(func_ptr)
+    }
+
+    type_field = get_heap_object_type(func_ptr)
+    if (type_field != HEAP_OBJECT_JS_FUNCTION_TYPE) {
+        if (type_field == HEAP_OBJECT_CODE_TYPE) {
+            return FRAME_TYPE_INTERNAL
+        } 
+        return FRAME_TYPE_NATIVE
+    }
+
+    // Not trying to dig out inlined frames for now
+    return FRAME_TYPE_JAVA_SCRIPT
+}
+
+function func_is_hidden_builtin(func:long) {
+    context = read_user_pointer(func + JS_FUNC_CONTEXT_OFFSET)
+    global_object = context_get(context, CONTEXT_GLOBAL_OBJECT_INDEX)
+    obj_type = get_heap_object_type(global_object) 
+    is_builtin = obj_type == HEAP_OBJECT_BUILTIN_TYPE
+
+    //printf("builtin? %d", is_builtin)
+    // Not on linux?
+    // shared_info = get_func_shared_info(func)
+    // hints = user_uint32(strip_low_bit(shared_info) + SHARED_INFO_COMPILER_HINTS_OFFSET)
+    // printf("hints: %x\n", hints)
+    // printf("native? %x\n", hints & SHARED_INFO_COMPILER_NATIVE_HINT)
+    // return is_builtin && !(hints & SHARED_INFO_COMPILER_NATIVE_HINT)
+    return is_builtin
+}
+
+function frame_receiver_is_js_builtin(fp:long) {
+    // top of stack
+    receiver = read_user_pointer(fp + FP_RECEIVER_OFFSET)
+    receiver_type = get_heap_object_type(receiver)
+    return receiver_type == HEAP_OBJECT_BUILTIN_TYPE
+}
+
+function print_non_js_frame(type:long, pc:long) {
+    if (type == FRAME_TYPE_NATIVE || type == FRAME_TYPE_NONE) {
+        printf("[native:%lx]", pc)
+    } else if (type == FRAME_TYPE_ENTRY) {
+        printf("[entry frame]");
+    } else if (type == FRAME_TYPE_ENTRY_CONSTRUCT) {
+        printf("[constructor entry]")
+    } else if (type == FRAME_TYPE_CONSTRUCT) {
+        printf("[constructor frame]")
+    } else if (type == FRAME_TYPE_ARGUMENTS_ADAPTOR) {
+        printf("[arguments adaptor]");
+    } else if (type == FRAME_TYPE_EXIT) {
+        printf("[exit frame]");
+    } else if (type == FRAME_TYPE_INTERNAL) {
+        printf("[internal frame]")
+    } else {
+        // Could be... but reflects some failure of understanding
+        printf("[native:%lx]", pc)
+    }
+
+    printf("\n");
+}
+
+// Exit after user-specified number of seconds
+global start_time_ms;
+global sampling_duration_ms = $2
+
+probe begin {
+    start_time_ms = gettimeofday_ms()
+}
+
+/*
+ * When a timer first fires isn't documented, though it appears to be
+ * (load time) + period.  We'll just make sure it's within a second of the
+ * goal.
+ */
+probe timer.sec(1)
+{
+    if (gettimeofday_ms() - start_time_ms > sampling_duration_ms) {
+        exit()
+    }
+}
+
+function take_node_backtrace() {
+    if (pid() == $1 && user_mode()) {
+        frame = u_register("bp")
+        pc = u_register("ip")
+        type = get_frame_type_for_fp(frame) // sketchy here if it's an exit frame
+
+        for (i = 0; i < MAX_STACK_DEPTH && frame != 0; i++) {
+            if (type == FRAME_TYPE_JAVA_SCRIPT) {
+                func_ptr = read_user_pointer(frame + FP_FUNC_OFFSET)
+
+                if (!frame_receiver_is_js_builtin(frame) && !func_is_hidden_builtin(func_ptr)) {
+                    // print the func_ptr address to be resolved later
+                    printf("0x%x\n", func_ptr);
+                }
+            } else {
+                print_non_js_frame(type, pc)
+            }
+
+            pc = read_user_pointer(frame + FP_RETURN_ADDRESS_OFFSET)
+            frame = read_user_pointer(frame)
+            type = get_frame_type_for_fp(frame)
+        }
+        printf("\n");
+    }
+}
+
+probe timer.profile {
+    /*
+     * Since we run completely asynchronously with respect to
+     * V8's activities, we can actually catch the heap in temporarily
+     * inconsistent states, causing bad copyins and such.  Try-catch
+     * so we drop a data point in that case rather than halting.
+     */
+    try {
+        take_node_backtrace()
+    } catch {
+        next
+    }
+}
