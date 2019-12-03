@@ -1,5 +1,7 @@
 ## Synopsis
 
+(This project is deprecated and not maintained.)
+
 Tools for profiling Node.js programs.  Uses SystemTap to collect and symbolicate JavaScript backtraces, extracting human-readable names by walking the V8 stack and heap.
 Uses wrapper scripts and [node-stackvis](https://github.com/joyent/node-stackvis) to generate textual or HTML flamegraphs.
 Can also output text suitable for input to to [FlameGraph] (https://github.com/brendangregg/FlameGraph).
